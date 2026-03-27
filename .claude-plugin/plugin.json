@@ -1,0 +1,8 @@
+{
+  "name": "claude-keitaro",
+  "version": "1.0.0",
+  "description": "Keitaro tracker management skill for Claude Code. Manage campaigns, flows, landings, reports, and optimization via natural language through Keitaro Admin API. Built for affiliate marketers and media buyers.",
+  "author": "iso73-ops",
+  "license": "MIT",
+  "homepage": "https://github.com/iso73-ops/claude-keitaro"
+}

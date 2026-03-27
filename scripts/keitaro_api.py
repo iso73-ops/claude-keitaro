@@ -38,12 +38,18 @@ import sys
 import json
 import argparse
 from datetime import datetime, timedelta
+from pathlib import Path
 
 try:
     import requests
 except ImportError:
     print("Error: 'requests' package required. Install: pip3 install requests")
     sys.exit(1)
+
+
+# --- Safety globals ---
+DRY_RUN = False
+SNAPSHOTS_DIR = Path.home() / ".claude" / "keitaro-snapshots"
 
 
 def get_config():
@@ -59,6 +65,13 @@ def get_config():
 
 
 def api_call(method, endpoint, data=None):
+    """Execute API call. Blocks writes if DRY_RUN is True."""
+    if DRY_RUN and method != "GET":
+        print(f"[DRY RUN] Would execute: {method} {endpoint}")
+        if data:
+            print(f"[DRY RUN] Payload: {json.dumps(data, indent=2, ensure_ascii=False)}")
+        return {"dry_run": True, "method": method, "endpoint": endpoint}
+
     url, key = get_config()
     full_url = f"{url}/admin_api/v1{endpoint}"
     headers = {"Api-Key": key, "Content-Type": "application/json"}
@@ -91,6 +104,102 @@ def api_call(method, endpoint, data=None):
     except requests.Timeout:
         print("Error: Request timed out (30s). Tracker may be slow or unreachable.")
         sys.exit(1)
+
+
+# --- Safety functions ---
+
+def snapshot_campaign(campaign_id):
+    """Save campaign + flows state before modification."""
+    SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    campaign = api_call("GET", f"/campaigns/{campaign_id}")
+    streams = api_call("GET", f"/campaigns/{campaign_id}/streams")
+    snapshot = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "campaign": campaign,
+        "streams": streams,
+    }
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    path = SNAPSHOTS_DIR / f"campaign_{campaign_id}_{ts}.json"
+    path.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False))
+    print(f"[SAFETY] Snapshot saved: {path}")
+    return snapshot
+
+
+def snapshot_stream(stream_id):
+    """Save single stream state before modification."""
+    SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    stream = api_call("GET", f"/streams/{stream_id}")
+    snapshot = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "stream": stream,
+    }
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    path = SNAPSHOTS_DIR / f"stream_{stream_id}_{ts}.json"
+    path.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False))
+    print(f"[SAFETY] Snapshot saved: {path}")
+    return snapshot
+
+
+def check_campaign_has_traffic(campaign_id):
+    """Warn if campaign has recent traffic — changes may affect live visitors."""
+    try:
+        today = str(datetime.utcnow().date())
+        yesterday = str((datetime.utcnow() - timedelta(days=1)).date())
+        report = api_call("POST", "/report/build", {
+            "range": {"from": yesterday, "to": today, "timezone": "UTC"},
+            "metrics": ["clicks", "conversions", "cost"],
+            "grouping": ["campaign_id"],
+            "filters": [{"name": "campaign_id", "operator": "EQUALS", "expression": str(campaign_id)}],
+            "limit": 1,
+        })
+        rows = report.get("rows", [])
+        if rows:
+            row = rows[0]
+            clicks = int(row.get("clicks", 0))
+            cost = float(row.get("cost", 0))
+            if clicks > 0:
+                print(f"[SAFETY] WARNING: Campaign #{campaign_id} has LIVE TRAFFIC!")
+                print(f"[SAFETY]   Last 24h: {clicks} clicks, ${cost:.2f} spent")
+                print(f"[SAFETY]   Modifying this campaign may affect active traffic.")
+                return True
+    except Exception:
+        pass  # If report fails, proceed with caution warning
+    return False
+
+
+def check_stream_is_only_active(campaign_id, stream_id):
+    """Check if disabling this stream would leave campaign with no active flows."""
+    streams = api_call("GET", f"/campaigns/{campaign_id}/streams")
+    active_streams = [s for s in streams if s.get("state") == "active" and s.get("id") != int(stream_id)]
+    if not active_streams:
+        print(f"[SAFETY] BLOCKED: Stream #{stream_id} is the ONLY active flow in campaign #{campaign_id}!")
+        print(f"[SAFETY]   Disabling it would leave the campaign with zero active flows.")
+        print(f"[SAFETY]   All traffic would get 'Do Nothing' response — effectively killing the campaign.")
+        return True
+    return False
+
+
+def safety_pre_check(action, entity_type, entity_id, campaign_id=None):
+    """Run safety checks before destructive operations."""
+    destructive = ["disable", "delete", "clone"]
+    modify = ["update", "create"]
+
+    if action in destructive and entity_type == "stream" and campaign_id:
+        if action == "disable":
+            if check_stream_is_only_active(campaign_id, entity_id):
+                print("[SAFETY] Use --force to override this safety check.")
+                return False
+        snapshot_stream(entity_id)
+        check_campaign_has_traffic(campaign_id)
+
+    elif action in destructive and entity_type == "campaign":
+        snapshot_campaign(entity_id)
+        check_campaign_has_traffic(entity_id)
+
+    elif action in modify and entity_type == "stream" and entity_id:
+        snapshot_stream(entity_id)
+
+    return True
 
 
 def parse_range(range_str):
@@ -175,11 +284,17 @@ def cmd_campaign_create(args):
 
 
 def cmd_campaign_action(args, action):
+    if not getattr(args, 'force', False):
+        if not safety_pre_check(action, "campaign", args.id):
+            sys.exit(1)
     result = api_call("POST", f"/campaigns/{args.id}/{action}")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def cmd_campaign_delete(args):
+    if not getattr(args, 'force', False):
+        if not safety_pre_check("delete", "campaign", args.id):
+            sys.exit(1)
     result = api_call("DELETE", f"/campaigns/{args.id}")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -211,6 +326,8 @@ def cmd_stream_create(args):
 
 def cmd_stream_update(args):
     # Keitaro uses POST for stream updates, not PUT
+    if not getattr(args, 'force', False):
+        safety_pre_check("update", "stream", args.id)
     data = {}
     if args.weight:
         data["weight"] = int(args.weight)
@@ -223,6 +340,17 @@ def cmd_stream_update(args):
 
 
 def cmd_stream_action(args, action):
+    # Get campaign_id from stream details for safety check
+    campaign_id = getattr(args, 'campaign_id', None)
+    if not campaign_id:
+        try:
+            stream = api_call("GET", f"/streams/{args.id}")
+            campaign_id = stream.get("campaign_id")
+        except Exception:
+            pass
+    if not getattr(args, 'force', False):
+        if not safety_pre_check(action, "stream", args.id, campaign_id):
+            sys.exit(1)
     result = api_call("POST", f"/streams/{args.id}/{action}")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -356,6 +484,10 @@ def cmd_conversions(args):
 
 def main():
     parser = argparse.ArgumentParser(description="Keitaro Admin API Helper")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Show what would be done without executing writes")
+    parser.add_argument("--force", action="store_true",
+                        help="Skip safety checks (use with caution)")
     sub = parser.add_subparsers(dest="command")
 
     # test
@@ -386,6 +518,7 @@ def main():
     for action in ["disable", "enable", "clone", "delete"]:
         p = camp_sub.add_parser(action)
         p.add_argument("--id", required=True)
+        p.add_argument("--force", action="store_true", help="Skip safety checks")
 
     # streams
     streams = sub.add_parser("streams", help="List campaign streams")
@@ -410,10 +543,12 @@ def main():
     stream_update.add_argument("--weight")
     stream_update.add_argument("--name")
     stream_update.add_argument("--filters")
+    stream_update.add_argument("--force", action="store_true", help="Skip safety checks")
 
     for action in ["disable", "enable"]:
         p = stream_sub.add_parser(action)
         p.add_argument("--id", required=True)
+        p.add_argument("--force", action="store_true", help="Skip safety checks")
 
     # landings
     sub.add_parser("landings", help="List landing pages")
@@ -482,6 +617,11 @@ def main():
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    global DRY_RUN
+    DRY_RUN = args.dry_run
+    if DRY_RUN:
+        print("[DRY RUN MODE] No writes will be executed.\n")
 
     if args.command == "test":
         cmd_test()

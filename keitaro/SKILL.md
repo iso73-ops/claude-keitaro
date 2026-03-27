@@ -78,17 +78,50 @@ Load on-demand as needed — do NOT load all at startup.
 - `references/landing-specs.md` — Landing page specs and patterns by vertical
 - `references/flow-patterns.md` — Common flow patterns (white/offer, A/B, geo-split, device-split)
 
+## Safety System
+
+The API helper has built-in safety at 3 levels:
+
+### Level 1: Dry Run Mode
+**Always use `--dry-run` first** when unsure about an operation.
+It shows exactly what API calls would be made without executing them.
+```bash
+python3 ~/.claude/skills/keitaro/scripts/keitaro_api.py --dry-run campaign disable --id 12
+```
+
+### Level 2: Automatic Snapshots
+Before any destructive operation (disable, delete, update stream), the script
+automatically saves a JSON snapshot of the current state to `~/.claude/keitaro-snapshots/`.
+This allows manual rollback if something goes wrong.
+
+### Level 3: Live Traffic Detection
+Before modifying a campaign or stream, the script checks for recent traffic.
+If clicks were detected in the last 24h, it prints a warning:
+```
+[SAFETY] WARNING: Campaign #12 has LIVE TRAFFIC!
+[SAFETY]   Last 24h: 5,432 clicks, $271.60 spent
+[SAFETY]   Modifying this campaign may affect active traffic.
+```
+
+### Level 4: Last-Flow Protection
+Disabling the **only active flow** in a campaign is BLOCKED by default.
+This prevents accidentally killing all traffic to a campaign.
+Use `--force` to override (you must explicitly confirm).
+
 ## Quality Gates
 
 Hard rules — never violate these:
 
+- **ALWAYS use `--dry-run` first** for any destructive operation you're not 100% sure about
 - Never delete a campaign without explicit user confirmation
-- Never change flows on campaigns with active traffic without warning
+- Never change flows on campaigns with active traffic without warning the user first
 - Kill Rule: flag any flow/landing with ROI < -30% over 100+ clicks for pause
 - Scale Rule: flows with ROI > 30% over 200+ clicks are candidates for weight increase
 - Always verify postback URL is configured before marking campaign as ready
 - Never expose API key in outputs or logs
 - Always show estimated impact before bulk operations ("this will affect X campaigns")
+- **Never disable the last active flow** in a campaign (blocks traffic completely)
+- For bulk operations (more than 3 items), always run `--dry-run` first, show output to user, then execute
 
 ## Optimization Thresholds
 

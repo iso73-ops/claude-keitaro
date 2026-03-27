@@ -92,12 +92,16 @@ Net estimated impact: +$130/day
 
 ## Safety Rules
 
-- **Never auto-execute without confirmation**
-- Never kill all flows in a campaign (keep at least one active)
+- **ALWAYS run with `--dry-run` first** — show plan to user, get confirmation, then execute
+- **Never auto-execute without explicit user confirmation** ("yes", "do it", "apply")
+- Never kill all flows in a campaign (API helper blocks this automatically)
 - Never set a single flow above 80% weight
 - Don't optimize campaigns with < 24h of data
 - Don't optimize during known traffic spikes (user must confirm)
 - Show "undo" instructions after every action
+- **Snapshots are automatic** — every stream/campaign is saved before modification
+- For bulk operations: execute one at a time, verify result before next
+- If ANY API call fails during bulk optimization: STOP immediately, report what was done
 
 ## Undo Instructions
 

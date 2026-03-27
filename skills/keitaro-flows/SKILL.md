@@ -40,30 +40,42 @@ When user describes a flow setup:
 ### Quick Patterns
 
 **"Add white page to campaign 12":**
+Endpoint: `POST /streams` (NOT PUT — Keitaro uses POST for both create and update)
 ```json
 {
   "campaign_id": 12,
   "type": "default",
   "name": "White Page",
+  "action_type": "show_landing_page",
   "schema": "landings",
-  "landing_page_ids": [<white_landing_id>]
+  "landings": [{"id": <white_landing_id>}]
 }
 ```
 
 **"Add offer flow for DE desktop":**
+Endpoint: `POST /streams`
 ```json
 {
   "campaign_id": 12,
   "type": "regular",
   "name": "DE Desktop",
+  "action_type": "redirect",
   "weight": 100,
   "schema": "landings_offers",
   "filters": [
     {"name": "geo", "mode": "accept", "payload": "DE"},
     {"name": "device_type", "mode": "accept", "payload": "desktop"}
   ],
-  "landing_page_ids": [5, 6],
-  "offer_ids": [10]
+  "landings": [{"id": 5}, {"id": 6}],
+  "offers": [{"id": 10}]
+}
+```
+
+**Update stream weight:**
+Endpoint: `POST /streams/{id}` (NOT PUT!)
+```json
+{
+  "weight": 70
 }
 ```
 

@@ -72,32 +72,42 @@ Combine multiple requests: append `?batch` or `?bulk` to endpoint.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/streams` | List all streams |
-| POST | `/streams` | Create stream |
-| GET | `/streams/{id}` | Get stream details |
-| PUT | `/streams/{id}` | Update stream |
-| DELETE | `/streams/{id}` | Delete stream |
+| GET | `/campaigns/{id}/streams` | List streams for a campaign (primary way to list) |
+| GET | `/streams/{id}` | Get single stream details |
+| POST | `/streams` | Create stream (campaign_id in body) |
+| POST | `/streams/{id}` | Update stream (uses POST, not PUT!) |
+| DELETE | `/streams/{id}` | Delete/archive stream |
 | POST | `/streams/{id}/clone` | Clone stream |
 | POST | `/streams/{id}/disable` | Disable stream |
 | POST | `/streams/{id}/enable` | Enable stream |
-| GET | `/campaigns/{id}/streams` | Get streams for campaign |
+| POST | `/streams/{id}/restore` | Restore archived stream |
+| GET | `/streams/deleted` | List deleted streams |
+| GET | `/stream_schemas` | List available schemas |
+| GET | `/stream_types` | List available stream types |
+| GET | `/stream_actions` | List available actions |
 
-### Stream Create Fields
-- `campaign_id` (integer, required) — parent campaign
-- `type` (string) — "regular", "forced", "default"
+**IMPORTANT:** Stream update uses `POST /streams/{id}`, NOT `PUT`. This is a Keitaro-specific behavior.
+
+### Stream Create/Update Fields
+- `campaign_id` (integer, required for create) — parent campaign
+- `type` (string, required for create) — "regular", "forced", "default"
 - `name` (string) — stream name
-- `position` (integer) — sort order
-- `weight` (integer) — traffic weight (for A/B split)
-- `state` (string) — "active", "disabled"
-- `action_type` (string) — "redirect", "show_html", "show_landing_page", "none"
+- `action_type` (string, required for create) — get available types via `GET /stream_actions`
 - `action_payload` (string) — URL for redirect or HTML content
-- `schema` (string) — "redirect", "landings", "landings_offers", "offers"
-- `collect_clicks` (boolean) — track clicks
+- `action_options` (object) — additional action configuration
+- `schema` (string, required for create) — get available schemas via `GET /stream_schemas`
+- `position` (integer) — sort order (forced flows evaluated top to bottom)
+- `weight` (integer) — traffic weight % (for weight-based campaigns)
+- `state` (string) — "active", "disabled"
+- `collect_clicks` (boolean) — track clicks in statistics
 - `filter_or` (boolean) — OR logic for filters (default AND)
 - `filters` (array) — traffic filters (geo, device, OS, etc.)
-- `landing_page_ids` (array of int) — linked landing pages
-- `offer_ids` (array of int) — linked offers
+- `landings` (array) — landing page objects with IDs and weights
+- `offers` (array) — offer objects with IDs and weights
 - `triggers` (array) — automation triggers
+- `comments` (string) — internal notes
+
+**Note:** For update, use `POST /streams/{id}` with the same fields. Fields `action_type` and `schema` are required even for updates (re-send current values if not changing).
 
 ### Filter Object
 ```json
@@ -173,13 +183,20 @@ Common filters:
 
 ### Offer Create Fields
 - `name` (string, required) — offer name
-- `url` (string, required) — offer URL (with macros)
+- `offer_type` (string) — offer type
+- `action_type` (string) — "redirect", "local_file", "html"
+- `action_payload` (string) — URL for redirect, HTML for html type, path for local_file
 - `affiliate_network_id` (integer) — linked network
 - `group_id` (integer) — group
 - `payout_type` (string) — "CPA", "CPS", "CPL", "RevShare"
 - `payout_value` (number) — payout amount
 - `payout_currency` (string) — currency code
 - `payout_auto` (boolean) — auto from postback
+- `payout_upsell` (number) — upsell payout value
+- `country` (array of string) — target countries
+- `notes` (string) — internal notes
+- `state` (string) — "active", "disabled"
+- `archive` (boolean) — archived status
 
 ---
 

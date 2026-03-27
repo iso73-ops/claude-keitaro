@@ -210,6 +210,7 @@ def cmd_stream_create(args):
 
 
 def cmd_stream_update(args):
+    # Keitaro uses POST for stream updates, not PUT
     data = {}
     if args.weight:
         data["weight"] = int(args.weight)
@@ -217,7 +218,7 @@ def cmd_stream_update(args):
         data["name"] = args.name
     if args.filters:
         data["filters"] = json.loads(args.filters)
-    result = api_call("PUT", f"/streams/{args.id}", data)
+    result = api_call("POST", f"/streams/{args.id}", data)
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
@@ -251,15 +252,37 @@ def cmd_offers_list():
 
 
 def cmd_offer_create(args):
-    data = {"name": args.name, "url": args.url}
+    data = {"name": args.name}
+    if args.url:
+        data["action_type"] = "redirect"
+        data["action_payload"] = args.url
     if args.payout:
         data["payout_value"] = float(args.payout)
-        data["payout_type"] = "CPA"
+        data["payout_type"] = args.payout_type or "CPA"
+    if args.payout_currency:
+        data["payout_currency"] = args.payout_currency
     if args.network_id:
         data["affiliate_network_id"] = int(args.network_id)
     if args.group_id:
         data["group_id"] = int(args.group_id)
+    if args.country:
+        data["country"] = args.country.split(",")
     result = api_call("POST", "/offers", data)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+def cmd_stream_schemas():
+    result = api_call("GET", "/stream_schemas")
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+def cmd_stream_types():
+    result = api_call("GET", "/stream_types")
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+def cmd_stream_actions():
+    result = api_call("GET", "/stream_actions")
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
@@ -410,10 +433,18 @@ def main():
     offer_sub = offer.add_subparsers(dest="action")
     offer_create = offer_sub.add_parser("create")
     offer_create.add_argument("--name", required=True)
-    offer_create.add_argument("--url", required=True)
+    offer_create.add_argument("--url")
     offer_create.add_argument("--payout")
+    offer_create.add_argument("--payout-type", choices=["CPA", "CPS", "CPL", "RevShare"], default="CPA")
+    offer_create.add_argument("--payout-currency", default="USD")
     offer_create.add_argument("--network-id")
     offer_create.add_argument("--group-id")
+    offer_create.add_argument("--country", help="Comma-separated country codes")
+
+    # Stream metadata
+    sub.add_parser("stream-schemas", help="List available stream schemas")
+    sub.add_parser("stream-types", help="List available stream types")
+    sub.add_parser("stream-actions", help="List available stream actions")
 
     # domains
     sub.add_parser("domains", help="List domains")
@@ -503,6 +534,12 @@ def main():
         cmd_clicks(args)
     elif args.command == "conversions":
         cmd_conversions(args)
+    elif args.command == "stream-schemas":
+        cmd_stream_schemas()
+    elif args.command == "stream-types":
+        cmd_stream_types()
+    elif args.command == "stream-actions":
+        cmd_stream_actions()
     else:
         parser.print_help()
 

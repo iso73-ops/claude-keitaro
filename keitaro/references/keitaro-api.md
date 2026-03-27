@@ -45,17 +45,26 @@ Combine multiple requests: append `?batch` or `?bulk` to endpoint.
 
 ### Campaign Create Fields
 - `name` (string, required) — campaign name
-- `alias` (string, required) — URL alias
+- `alias` (string, required) — URL alias (e.g. "cloudservers" → `example.com/cloudservers`)
+- `type` (string) — rotation mode: "position" (sequential) or "weight" (random by weight)
 - `state` (string) — "active", "disabled"
-- `cost_type` (string) — "CPC", "CPM", "CPA", "RevShare", "CPS"
+- `cost_type` (string) — "CPC", "CPuC" (per unique click), "CPM", "CPA", "CPS", "RevShare"
 - `cost_value` (number) — cost amount
 - `cost_currency` (string) — "USD", "EUR", etc.
 - `cost_auto` (boolean) — auto-pull costs from traffic source
+- `traffic_loss` (number) — % of traffic lost between source and tracker (adjusts cost)
 - `group_id` (integer) — group for organization
-- `bind_visitors` (string) — visitor binding mode
+- `bind_visitors` (string) — visitor binding mode (weight-based campaigns only):
+  - "flow" — bind to same flow
+  - "flow_landing" — bind to same flow + landing
+  - "flow_landing_offer" — bind to same flow + landing + offer
+- `bind_visitors_ttl` (integer) — binding duration in hours (1-8760, default 24)
+- `uniqueness_method` (string) — "ip", "ip_ua", "cookies", "get_parameter"
+- `uniqueness_ttl` (integer) — uniqueness TTL in hours (1-8760)
 - `traffic_source_id` (integer) — linked traffic source
 - `domain_id` (integer) — tracker domain to use
-- `parameters` (object) — custom sub-id parameters mapping
+- `parameters` (object) — custom sub-id parameters mapping (UTM, sub_id_1-15)
+- `token` (string, read-only) — API token for Click API integration
 
 ---
 
@@ -110,7 +119,19 @@ Common filters:
 - `connection_type` — wifi, cellular
 - `ip` — IP ranges
 - `referrer` — referrer URL pattern
+- `uniqueness` — first-time vs. returning visitors
+- `limit` — intercept first X clicks only
 - `sub_id_*` — sub-id values (sub_id_1 through sub_id_15)
+
+### Stream Processing Order
+1. **Forced flows** — evaluated first, top to bottom (bypass regular rotation)
+2. **Regular flows** — position-based (sequential) or weight-based (random with binding)
+3. **Default flow** — fallback when no other flow matches
+4. If no default flow → "Do Nothing" action
+
+### Bulk Stream Operations
+- Delete (archive), Clone, Replace (substring in URLs), Equalize (reset weights)
+- Favorite flows: save as reusable templates across campaigns (creates clone, not reference)
 
 ---
 
@@ -344,6 +365,112 @@ Common filters:
 
 ---
 
+## Click API (v3)
+
+Separate from Admin API. Used to process clicks server-side (for custom integrations).
+
+**Endpoint:** `GET/POST https://{tracker-domain}/click_api/v3`
+
+### Request Parameters
+- `token` (string, required) — campaign API token (from campaign settings)
+- `ip` (string) — visitor IPv4 address
+- `user_agent` (string) — visitor user agent
+- `language` (string) — language ISO code
+- `landing_id` (integer) — originating landing page ID
+- `uniqueness_cookie` (string) — cookie data for visitor tracking
+- `x_requested_with` (string) — browser header value
+- `log` (integer) — set to 1 to include processing log
+- `info` (integer) — set to 1 to include click info in response
+- `force_redirect_offer` (integer) — set to 1 for offer redirect URL in body
+
+### Response Fields
+```json
+{
+  "headers": ["Location: https://offer.com/?sub=abc123"],
+  "status": "302",
+  "body": "",
+  "contentType": "application/json; charset=utf-8",
+  "uniqueness_cookie": "abc123def456",
+  "cookies_ttl": 24,
+  "log": ["Step 1: ...", "Step 2: ..."],
+  "info": {
+    "sub_id": "abc123",
+    "campaign_id": 12,
+    "stream_id": 45,
+    "offer_id": [10],
+    "token": "xyz789",
+    "is_bot": false
+  }
+}
+```
+
+### Offer URL Construction
+After getting `info.token` from Click API response:
+```
+https://{tracker-domain}/?_lp=1&_token={info.token}
+```
+
+### Status Codes
+- 200 — success
+- 401 — invalid token or campaign not found
+- 409 — Click API feature disabled
+
+---
+
+## Postback & Conversion Tracking
+
+### S2S Postback URL Format (incoming — from affiliate networks)
+```
+https://{tracker-domain}/postback?subid={subid}&payout={payout}&status={status}
+```
+
+### Postback Parameters
+- `subid` (required) — unique click ID passed through landing to network
+- `payout` (optional) — conversion payout amount
+- `status` (optional) — conversion status: "lead", "sale", "rejected"
+- `revenue` (optional) — alternative to payout
+
+### Passing SubID Through Landing
+Add hidden field in landing page forms:
+```html
+<input type="hidden" name="subid" value="{subid}">
+```
+
+Or pass via URL parameter:
+```
+https://offer.com/?aff_sub={subid}
+```
+
+### Keitaro LP Pixel (for local landings)
+Include in landing page to track clicks and get subid:
+```html
+<script src="https://{tracker-domain}/landing.php?marker=1"></script>
+```
+
+### Supported Affiliate Networks (with templates)
+Adcombo, Dr.Cash, HotPartners, KMA, Leadtrade, Leadvertex, LemonAD,
+LuckyOnline, M1-Shop, M4Leads, Shakes.pro, TerraLeads, and 350+ more
+via built-in templates.
+
+### Macro Reference (for offer URLs)
+- `{subid}` or `{sub_id}` — unique click identifier
+- `{campaign_id}` — campaign ID
+- `{stream_id}` — flow/stream ID
+- `{creative_id}` — creative/ad ID (from traffic source)
+- `{source}` — traffic source name
+- `{keyword}` — keyword (from traffic source)
+- `{country}` — visitor country code
+- `{city}` — visitor city
+- `{device}` — device type
+- `{os}` — operating system
+- `{browser}` — browser name
+- `{ip}` — visitor IP
+- `{user_agent}` — visitor user agent
+- `{referrer}` — referrer URL
+- `{sub_id_1}` through `{sub_id_15}` — custom sub-ID values
+
+---
+
 ## Error Codes
 
 | Code | Meaning |
@@ -355,4 +482,5 @@ Common filters:
 | 402 | Payment required (license issue) |
 | 404 | Not found |
 | 406 | Not acceptable |
+| 422 | Unprocessable entity (domain registration) |
 | 500 | Server error |

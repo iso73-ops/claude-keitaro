@@ -227,5 +227,30 @@ Campaign
 | Type | Behavior |
 |------|----------|
 | `regular` | Normal flow, filtered by conditions + weight |
-| `forced` | Always triggered (bypass filters), used for specific sub-ids |
-| `default` | Catches all traffic that doesn't match regular/forced flows |
+| `forced` | Evaluated FIRST, top to bottom, bypasses regular rotation. Used for specific sub-ids or priority routing |
+| `default` | Fallback — catches all traffic that doesn't match regular/forced flows. If missing → "Do Nothing" |
+
+## Quick Reference: Campaign Rotation Modes
+
+| Mode | `type` value | Behavior |
+|------|-------------|----------|
+| Position-based | `"position"` | Flows evaluated sequentially top to bottom. First matching flow wins |
+| Weight-based | `"weight"` | Flows selected randomly based on weight %. Needs large sample for accuracy (law of large numbers) |
+
+## Quick Reference: Visitor Binding (weight-based only)
+
+| Binding | `bind_visitors` value | What's preserved |
+|---------|----------------------|------------------|
+| Flow only | `"flow"` | Returning visitor goes to same flow |
+| Flow + Landing | `"flow_landing"` | Same flow and same landing page |
+| Flow + Landing + Offer | `"flow_landing_offer"` | Same flow, landing, and offer |
+
+Binding TTL: 1-8760 hours (default 24). Set via `bind_visitors_ttl`.
+
+## Quick Reference: Favorite Flows
+
+Flows marked as favorites become reusable templates. Inserting a favorite into another campaign creates a **clone** (not a shared reference). Useful for standardizing cloaking setups across campaigns.
+
+## Import/Export
+
+Flows can be exported/imported as JSON files for portability between trackers.

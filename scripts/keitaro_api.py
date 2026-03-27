@@ -154,12 +154,22 @@ def cmd_campaign_get(args):
 
 def cmd_campaign_create(args):
     data = {"name": args.name, "alias": args.alias}
+    if args.type:
+        data["type"] = args.type
     if args.domain_id:
         data["domain_id"] = int(args.domain_id)
     if args.traffic_source_id:
         data["traffic_source_id"] = int(args.traffic_source_id)
     if args.group_id:
         data["group_id"] = int(args.group_id)
+    if args.cost_type:
+        data["cost_type"] = args.cost_type
+    if args.cost_value:
+        data["cost_value"] = float(args.cost_value)
+    if args.cost_currency:
+        data["cost_currency"] = args.cost_currency
+    if args.bind_visitors:
+        data["bind_visitors"] = args.bind_visitors
     result = api_call("POST", "/campaigns", data)
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
@@ -341,9 +351,14 @@ def main():
     camp_create = camp_sub.add_parser("create")
     camp_create.add_argument("--name", required=True)
     camp_create.add_argument("--alias", required=True)
+    camp_create.add_argument("--type", choices=["position", "weight"], default="weight")
     camp_create.add_argument("--domain-id")
     camp_create.add_argument("--traffic-source-id")
     camp_create.add_argument("--group-id")
+    camp_create.add_argument("--cost-type", choices=["CPC", "CPuC", "CPM", "CPA", "CPS", "RevShare"])
+    camp_create.add_argument("--cost-value")
+    camp_create.add_argument("--cost-currency", default="USD")
+    camp_create.add_argument("--bind-visitors", choices=["flow", "flow_landing", "flow_landing_offer"])
 
     for action in ["disable", "enable", "clone", "delete"]:
         p = camp_sub.add_parser(action)
